@@ -1,0 +1,21 @@
+{
+    "auth": "microsoft",
+    "discord_admin_id": "",
+    "discord_channel": "",
+    "discord_status": "Playing Minecraft",
+    "discord_token": "",
+    "enable_chat_reactions": "false",
+    "enable_daily_restart": "false",
+    "enable_discord": "false",
+    "enable_follow": "false",
+    "enable_inventory": "false",
+    "enable_web_controller": "false",
+    "follow_player": "",
+    "host": "play.yourserver.net",
+    "inventory_port": 2002,
+    "port": 25565,
+    "restart_timezone": "America/New_York",
+    "username": "ell41determined1",
+    "viewer_port": 2001,
+    "web_controller_port": 2000
+}

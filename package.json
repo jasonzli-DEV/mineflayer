@@ -1,0 +1,16 @@
+{
+  "name": "mineflayer-bot",
+  "version": "1.0.0",
+  "description": "Mineflayer bot with Discord and viewer",
+  "main": "index.js",
+  "dependencies": {
+    "mineflayer": "^4.20.1",
+    "discord.js": "^14.16.3",
+    "prismarine-viewer": "^1.33.0",
+    "mineflayer-web-inventory": "^1.8.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "canvas": "^2.11.2",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  }
+}
