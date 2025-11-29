@@ -36,6 +36,9 @@ Thumbs.db
 *.swo
 
 # Ignore config backups
+
+# Ignore main config file
+config.json
 config.json.bak
 
 # Ignore VSCode settings

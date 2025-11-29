@@ -28,7 +28,10 @@ let config = {
   restart_timezone: 'America/New_York',
   enable_chat_reactions: false,
   enable_follow: false,
-  follow_player: ''
+  follow_player: '',
+  enable_autoclicker: false,
+  enable_player_list: false,
+  player_list_channel: ''
 };
 
 if (fs.existsSync('config.json')) {
@@ -57,6 +60,13 @@ if (fs.existsSync('config.json')) {
   if (typeof config.enable_follow === 'string') {
     config.enable_follow = config.enable_follow === 'true';
   }
+  if (typeof config.enable_autoclicker === 'string') {
+    config.enable_autoclicker = config.enable_autoclicker === 'true';
+  }
+  if (typeof config.enable_player_list === 'string') {
+    config.enable_player_list = config.enable_player_list === 'true';
+  }
+  config.player_list_channel = String(config.player_list_channel || '');
   config.web_controller_port = parseInt(config.web_controller_port) || 3000;
   config.viewer_port = parseInt(config.viewer_port) || 3001;
   config.inventory_port = parseInt(config.inventory_port) || 3001;
@@ -77,6 +87,9 @@ console.log('Inventory enabled:', config.enable_inventory);
 console.log('Chat reactions enabled:', config.enable_chat_reactions);
 console.log('Follow enabled:', config.enable_follow);
 console.log('Follow player:', config.follow_player);
+console.log('Autoclicker enabled:', config.enable_autoclicker);
+console.log('Player list enabled:', config.enable_player_list);
+console.log('Player list channel:', config.player_list_channel);
 
 // Global variables
 let bot = null;
@@ -84,6 +97,9 @@ let discordClient = null;
 let discordChannel = null;
 let scheduleInterval = null;
 let followInterval = null;
+let autoclickerInterval = null;
+let playerListInterval = null;
+let playerListChannel = null;
 let manuallyDisconnected = false;
 let webControllerServer = null;
 let webControllerIO = null;
@@ -155,7 +171,7 @@ function setupWebController(bot, port, viewerPort) {
   // HTML page with controls - viewer in iframe pointing to viewer port
   app.get('/', (req, res) => {
     const vp = viewerPort;
-    res.send('<!DOCTYPE html><html><head><title>Mineflayer Bot Controller</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a2e;color:#eee;font-family:Arial,sans-serif;overflow:hidden}#container{width:100vw;height:100vh;display:flex;flex-direction:column}#viewer-frame{flex:1;width:100%;border:none;background:#111}#controls-overlay{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);padding:15px 25px;border-radius:10px;display:flex;gap:20px;align-items:center;z-index:1000}.key{display:inline-block;padding:8px 12px;background:#333;border:2px solid #555;border-radius:5px;min-width:40px;text-align:center;font-weight:bold}.key.active{background:#4CAF50;border-color:#4CAF50}#status{position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.7);padding:10px 15px;border-radius:5px;z-index:1000}#instructions{position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.7);padding:10px 15px;border-radius:5px;z-index:1000;font-size:12px;max-width:200px}#pointer-lock-msg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);padding:30px;border-radius:10px;z-index:2000;text-align:center}#pointer-lock-msg h2{margin-bottom:15px}.keys-row{display:flex;gap:5px;justify-content:center}.keys-col{display:flex;flex-direction:column;gap:5px;align-items:center}#viewer-notice{background:#333;color:#fff;padding:10px;text-align:center}#viewer-notice a{color:#4CAF50}#chat-box{position:fixed;bottom:80px;left:20px;width:350px;max-height:200px;background:rgba(0,0,0,0.7);border-radius:5px;z-index:1000;display:flex;flex-direction:column}#chat-messages{flex:1;overflow-y:auto;padding:10px;font-size:13px;max-height:150px}#chat-messages p{margin:3px 0;word-wrap:break-word}.chat-msg{color:#fff}.chat-input-container{display:none;padding:8px;border-top:1px solid #444}#chat-input{width:100%;padding:8px;background:#222;border:1px solid #555;border-radius:3px;color:#fff;font-size:13px}#chat-input:focus{outline:none;border-color:#4CAF50}.chat-hint{color:#888;font-size:11px;padding:5px 10px;text-align:center}</style></head><body><div id="container"><div id="viewer-notice"><p>3D Viewer: <a href="http://'+req.hostname+':'+vp+'" target="_blank" id="viewer-link">Open in new tab</a> (Requires port '+vp+' exposed in Pterodactyl)</p></div><iframe id="viewer-frame" src="http://'+req.hostname+':'+vp+'"></iframe></div><div id="status">Connected: <span id="conn-status">Connecting...</span></div><div id="instructions"><b>Click page to enable controls</b><br>WASD - Move<br>Space - Jump<br>Shift - Sneak<br>Ctrl - Sprint<br>Mouse - Look<br>T - Chat<br>Enter - Send<br>ESC - Release mouse</div><div id="controls-overlay"><div class="keys-col"><div class="keys-row"><span class="key" id="key-w">W</span></div><div class="keys-row"><span class="key" id="key-a">A</span><span class="key" id="key-s">S</span><span class="key" id="key-d">D</span></div></div><div class="keys-col"><span class="key" id="key-space">SPACE</span><span class="key" id="key-shift">SHIFT</span><span class="key" id="key-ctrl">CTRL</span></div></div><div id="chat-box"><div id="chat-messages"><p class="chat-hint">Press T to chat, Enter to send</p></div><div class="chat-input-container" id="chat-input-container"><input type="text" id="chat-input" placeholder="Type a message and press Enter..." maxlength="256"></div></div><div id="pointer-lock-msg"><h2>Click anywhere to control the bot</h2><p>Use WASD to move, mouse to look around</p></div><script src="/socket.io/socket.io.js"></script><script>const socket=io();let isLocked=false;const keys={w:false,a:false,s:false,d:false,space:false,shift:false,ctrl:false};socket.on("connect",()=>{document.getElementById("conn-status").textContent="Yes";document.getElementById("conn-status").style.color="#4CAF50"});socket.on("disconnect",()=>{document.getElementById("conn-status").textContent="No";document.getElementById("conn-status").style.color="#f44336"});socket.on("chat",(msg)=>{const chatMsgs=document.getElementById("chat-messages");const p=document.createElement("p");p.className="chat-msg";p.textContent=msg;chatMsgs.appendChild(p);while(chatMsgs.children.length>50)chatMsgs.removeChild(chatMsgs.firstChild);chatMsgs.scrollTop=chatMsgs.scrollHeight});let chatOpen=false;const chatInput=document.getElementById("chat-input");const chatContainer=document.getElementById("chat-input-container");function openChat(){chatOpen=true;chatContainer.style.display="block";chatInput.focus();document.exitPointerLock()}function closeChat(){chatOpen=false;chatContainer.style.display="none";chatInput.value="";document.body.requestPointerLock()}function sendChat(){const msg=chatInput.value.trim();if(msg){socket.emit("chat",msg)}closeChat()}chatInput.addEventListener("keydown",(e)=>{if(e.key==="Enter"){e.preventDefault();sendChat()}else if(e.key==="Escape"){closeChat()}e.stopPropagation()});chatInput.addEventListener("keyup",(e)=>e.stopPropagation());function updateKeyDisplay(){document.getElementById("key-w").classList.toggle("active",keys.w);document.getElementById("key-a").classList.toggle("active",keys.a);document.getElementById("key-s").classList.toggle("active",keys.s);document.getElementById("key-d").classList.toggle("active",keys.d);document.getElementById("key-space").classList.toggle("active",keys.space);document.getElementById("key-shift").classList.toggle("active",keys.shift);document.getElementById("key-ctrl").classList.toggle("active",keys.ctrl)}function sendControls(){socket.emit("controls",{forward:keys.w,back:keys.s,left:keys.a,right:keys.d,jump:keys.space,sneak:keys.shift,sprint:keys.ctrl})}document.addEventListener("click",(e)=>{if(e.target.tagName==="A"||e.target.tagName==="INPUT")return;if(!isLocked&&!chatOpen)document.body.requestPointerLock()});document.addEventListener("pointerlockchange",()=>{isLocked=document.pointerLockElement===document.body;document.getElementById("pointer-lock-msg").style.display=isLocked?"none":"block"});document.addEventListener("keydown",(e)=>{if(chatOpen)return;if(!isLocked)return;e.preventDefault();let changed=false;if(e.code==="KeyW"&&!keys.w){keys.w=true;changed=true}if(e.code==="KeyA"&&!keys.a){keys.a=true;changed=true}if(e.code==="KeyS"&&!keys.s){keys.s=true;changed=true}if(e.code==="KeyD"&&!keys.d){keys.d=true;changed=true}if(e.code==="Space"&&!keys.space){keys.space=true;changed=true}if(e.code==="ShiftLeft"&&!keys.shift){keys.shift=true;changed=true}if(e.code==="ControlLeft"&&!keys.ctrl){keys.ctrl=true;changed=true}if(e.code==="KeyT"){openChat();return}if(changed){updateKeyDisplay();sendControls()}});document.addEventListener("keyup",(e)=>{if(chatOpen)return;let changed=false;if(e.code==="KeyW"){keys.w=false;changed=true}if(e.code==="KeyA"){keys.a=false;changed=true}if(e.code==="KeyS"){keys.s=false;changed=true}if(e.code==="KeyD"){keys.d=false;changed=true}if(e.code==="Space"){keys.space=false;changed=true}if(e.code==="ShiftLeft"){keys.shift=false;changed=true}if(e.code==="ControlLeft"){keys.ctrl=false;changed=true}if(changed){updateKeyDisplay();sendControls()}});document.addEventListener("mousemove",(e)=>{if(!isLocked)return;socket.emit("look",{x:e.movementX,y:e.movementY})});</script></body></html>');
+    res.send('<!DOCTYPE html><html><head><title>Mineflayer Bot Controller</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a2e;color:#eee;font-family:Arial,sans-serif;overflow:hidden}#container{width:100vw;height:100vh;display:flex;flex-direction:column}#viewer-frame{flex:1;width:100%;border:none;background:#111}#controls-overlay{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);padding:15px 25px;border-radius:10px;display:flex;gap:20px;align-items:center;z-index:1000}.key{display:inline-block;padding:8px 12px;background:#333;border:2px solid #555;border-radius:5px;min-width:40px;text-align:center;font-weight:bold}.key.active{background:#4CAF50;border-color:#4CAF50}#status{position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.7);padding:10px 15px;border-radius:5px;z-index:1000}#instructions{position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.7);padding:10px 15px;border-radius:5px;z-index:1000;font-size:12px;max-width:200px}#pointer-lock-msg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);padding:30px;border-radius:10px;z-index:2000;text-align:center}#pointer-lock-msg h2{margin-bottom:15px}.keys-row{display:flex;gap:5px;justify-content:center}.keys-col{display:flex;flex-direction:column;gap:5px;align-items:center}#viewer-notice{background:#333;color:#fff;padding:10px;text-align:center}#viewer-notice a{color:#4CAF50}#chat-box{position:fixed;bottom:80px;left:20px;width:350px;max-height:200px;background:rgba(0,0,0,0.7);border-radius:5px;z-index:1000;display:flex;flex-direction:column}#chat-messages{flex:1;overflow-y:auto;padding:10px;font-size:13px;max-height:150px}#chat-messages p{margin:3px 0;word-wrap:break-word}.chat-msg{color:#fff}.chat-input-container{display:none;padding:8px;border-top:1px solid #444}#chat-input{width:100%;padding:8px;background:#222;border:1px solid #555;border-radius:3px;color:#fff;font-size:13px}#chat-input:focus{outline:none;border-color:#4CAF50}.chat-hint{color:#888;font-size:11px;padding:5px 10px;text-align:center}</style></head><body><div id="container"><div id="viewer-notice"><p>3D Viewer: <a href="http://'+req.hostname+':'+vp+'" target="_blank" id="viewer-link">Open in new tab</a> (Requires port '+vp+' exposed in Pterodactyl)</p></div><iframe id="viewer-frame" src="http://'+req.hostname+':'+vp+'"></iframe></div><div id="status">Connected: <span id="conn-status">Connecting...</span></div><div id="instructions"><b>Click page to enable controls</b><br>WASD - Move<br>Space - Jump<br>Shift - Sneak<br>Ctrl - Sprint<br>Mouse - Look<br>T or / - Chat<br>Enter - Send<br>ESC - Release mouse</div><div id="controls-overlay"><div class="keys-col"><div class="keys-row"><span class="key" id="key-w">W</span></div><div class="keys-row"><span class="key" id="key-a">A</span><span class="key" id="key-s">S</span><span class="key" id="key-d">D</span></div></div><div class="keys-col"><span class="key" id="key-space">SPACE</span><span class="key" id="key-shift">SHIFT</span><span class="key" id="key-ctrl">CTRL</span></div></div><div id="chat-box"><div id="chat-messages"><p class="chat-hint">Press T to chat, Enter to send</p></div><div class="chat-input-container" id="chat-input-container"><input type="text" id="chat-input" placeholder="Type a message and press Enter..." maxlength="256"></div></div><div id="pointer-lock-msg"><h2>Click here to control the bot</h2><p>Use WASD to move, mouse to look around</p></div><script src="/socket.io/socket.io.js"></script><script>const socket=io();let isLocked=false;const keys={w:false,a:false,s:false,d:false,space:false,shift:false,ctrl:false};socket.on("connect",()=>{document.getElementById("conn-status").textContent="Yes";document.getElementById("conn-status").style.color="#4CAF50"});socket.on("disconnect",()=>{document.getElementById("conn-status").textContent="No";document.getElementById("conn-status").style.color="#f44336"});socket.on("chat",(msg)=>{const chatMsgs=document.getElementById("chat-messages");const p=document.createElement("p");p.className="chat-msg";p.textContent=msg;chatMsgs.appendChild(p);while(chatMsgs.children.length>50)chatMsgs.removeChild(chatMsgs.firstChild);chatMsgs.scrollTop=chatMsgs.scrollHeight});let chatOpen=false;const chatInput=document.getElementById("chat-input");const chatContainer=document.getElementById("chat-input-container");function openChat(){chatOpen=true;chatContainer.style.display="block";chatInput.focus();document.exitPointerLock()}function closeChat(){chatOpen=false;chatContainer.style.display="none";chatInput.value="";document.body.requestPointerLock()}function sendChat(){const msg=chatInput.value.trim();if(msg){socket.emit("chat",msg)}closeChat()}chatInput.addEventListener("keydown",(e)=>{if(e.key==="Enter"){e.preventDefault();sendChat()}else if(e.key==="Escape"){closeChat()}e.stopPropagation()});chatInput.addEventListener("keyup",(e)=>e.stopPropagation());function updateKeyDisplay(){document.getElementById("key-w").classList.toggle("active",keys.w);document.getElementById("key-a").classList.toggle("active",keys.a);document.getElementById("key-s").classList.toggle("active",keys.s);document.getElementById("key-d").classList.toggle("active",keys.d);document.getElementById("key-space").classList.toggle("active",keys.space);document.getElementById("key-shift").classList.toggle("active",keys.shift);document.getElementById("key-ctrl").classList.toggle("active",keys.ctrl)}function sendControls(){socket.emit("controls",{forward:keys.w,back:keys.s,left:keys.a,right:keys.d,jump:keys.space,sneak:keys.shift,sprint:keys.ctrl})}document.addEventListener("click",(e)=>{if(e.target.tagName==="A"||e.target.tagName==="INPUT")return;if(!isLocked&&!chatOpen)document.body.requestPointerLock()});document.addEventListener("pointerlockchange",()=>{isLocked=document.pointerLockElement===document.body;document.getElementById("pointer-lock-msg").style.display=isLocked?"none":"block"});document.addEventListener("keydown",(e)=>{if(chatOpen)return;if(!isLocked)return;e.preventDefault();let changed=false;if(e.code==="KeyW"&&!keys.w){keys.w=true;changed=true}if(e.code==="KeyA"&&!keys.a){keys.a=true;changed=true}if(e.code==="KeyS"&&!keys.s){keys.s=true;changed=true}if(e.code==="KeyD"&&!keys.d){keys.d=true;changed=true}if(e.code==="Space"&&!keys.space){keys.space=true;changed=true}if(e.code==="ShiftLeft"&&!keys.shift){keys.shift=true;changed=true}if(e.code==="ControlLeft"&&!keys.ctrl){keys.ctrl=true;changed=true}if(e.code==="KeyT"){openChat();return}if(e.code==="Slash"){openChat();setTimeout(()=>{chatInput.value="/";},10);return}if(changed){updateKeyDisplay();sendControls()}});document.addEventListener("keyup",(e)=>{if(chatOpen)return;let changed=false;if(e.code==="KeyW"){keys.w=false;changed=true}if(e.code==="KeyA"){keys.a=false;changed=true}if(e.code==="KeyS"){keys.s=false;changed=true}if(e.code==="KeyD"){keys.d=false;changed=true}if(e.code==="Space"){keys.space=false;changed=true}if(e.code==="ShiftLeft"){keys.shift=false;changed=true}if(e.code==="ControlLeft"){keys.ctrl=false;changed=true}if(changed){updateKeyDisplay();sendControls()}});document.addEventListener("mousemove",(e)=>{if(!isLocked)return;socket.emit("look",{x:e.movementX,y:e.movementY})});</script></body></html>');
   });
   
   // Handle Socket.IO connections
@@ -219,7 +235,7 @@ function setupWebController(bot, port, viewerPort) {
       } else {
         done();
       }
-      setTimeout(() => { io.close(); webControllerIO = null; if (callback && pending > 0) callback(); }, 1000);
+      setTimeout(() => { io.close(); webControllerIO = null; if (callback && pending > 0) callback(); }, 2000);
     }
   };
 }
@@ -350,6 +366,14 @@ function setupDiscord() {
         clearInterval(followInterval);
         followInterval = null;
       }
+      if (autoclickerInterval) {
+        clearInterval(autoclickerInterval);
+        autoclickerInterval = null;
+      }
+      if (playerListInterval) {
+        clearInterval(playerListInterval);
+        playerListInterval = null;
+      }
       
       // Close viewer servers and wait for them to close
       await closeViewerServers();
@@ -369,6 +393,10 @@ function setupDiscord() {
       }
       
       manuallyDisconnected = false;
+      
+      // Wait a moment for any previous servers to fully release ports
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       createBot();
       
       await interaction.reply('✅ Bot is connecting to Minecraft server...');
@@ -474,6 +502,16 @@ function createBot() {
       setupFollowPlayer();
     }
     
+    // Setup autoclicker if enabled
+    if (config.enable_autoclicker) {
+      setupAutoclicker();
+    }
+    
+    // Setup player list if enabled
+    if (config.enable_player_list && config.player_list_channel) {
+      setupPlayerList();
+    }
+    
     // Bot ready! - printed after a delay to ensure it's last
     setTimeout(() => console.log('Bot ready!'), 500);
   });
@@ -499,7 +537,7 @@ function createBot() {
     if (config.enable_chat_reactions && message.includes('Chat Reaction')) {
       if (message.includes('No one typed') || message.includes('was first')) return;
       
-      const match = message.match(/type [""]([^""]+)[""]/) || message.match(/type "([^"]+)"/);
+      const match = message.match(/type \"(.+?)\"/);
       if (match && match[1]) {
         if (Math.random() < 0.2) {
           setTimeout(() => {
@@ -529,6 +567,14 @@ bot.on('kicked', (reason) => {
     if (followInterval) {
       clearInterval(followInterval);
       followInterval = null;
+    }
+    if (autoclickerInterval) {
+      clearInterval(autoclickerInterval);
+      autoclickerInterval = null;
+    }
+    if (playerListInterval) {
+      clearInterval(playerListInterval);
+      playerListInterval = null;
     }
     
     // Close viewer servers
@@ -574,6 +620,170 @@ function setupFollowPlayer() {
   console.log(`Now following ${config.follow_player}`);
 }
 
+// Autoclicker function - left-clicks signs (for sell signs)
+function setupAutoclicker() {
+  console.log('Setting up autoclicker (every 5 minutes) - LEFT CLICK for selling');
+  
+  // Clear any existing interval
+  if (autoclickerInterval) {
+    clearInterval(autoclickerInterval);
+  }
+  
+  autoclickerInterval = setInterval(async () => {
+    if (!bot || !bot.entity) return;
+    
+    console.log('Autoclicker: Searching for signs...');
+    
+    try {
+      // Find ALL signs within 3 blocks
+      const signs = bot.findBlocks({
+        matching: (block) => block.name.includes('sign'),
+        maxDistance: 3,
+        count: 20
+      });
+      
+      console.log('Autoclicker: Found', signs.length, 'signs within 3 blocks');
+      
+      if (signs.length === 0) {
+        console.log('Autoclicker: No signs found');
+        return;
+      }
+      
+      // Find the HIGHEST sign (highest Y coordinate)
+      let bestSign = null;
+      let highestY = -Infinity;
+      
+      for (const signPos of signs) {
+        if (signPos.y > highestY) {
+          highestY = signPos.y;
+          bestSign = signPos;
+        }
+      }
+      
+      if (bestSign) {
+        const signBlock = bot.blockAt(bestSign);
+        console.log('Autoclicker: Highest sign is', signBlock?.name, 'at', bestSign.toString(), '- Y:', highestY);
+        
+        if (signBlock) {
+          console.log('Autoclicker: Clicking sign!');
+          
+          // Look at it first
+          await bot.lookAt(bestSign.offset(0.5, 0.5, 0.5));
+          await new Promise(r => setTimeout(r, 50));
+          
+          // Swing arm
+          bot.swingArm('right');
+          
+          // Send block_dig start (left-click)
+          bot._client.write('block_dig', {
+            status: 0,
+            location: signBlock.position,
+            face: 1
+          });
+          
+          // Also try block_place (right-click)
+          bot._client.write('block_place', {
+            location: signBlock.position,
+            direction: 1,
+            hand: 0,
+            cursorX: 0.5,
+            cursorY: 0.5,
+            cursorZ: 0.5,
+            insideBlock: false
+          });
+          
+          // Cancel dig
+          setTimeout(() => {
+            bot._client.write('block_dig', {
+              status: 1,
+              location: signBlock.position,
+              face: 1
+            });
+          }, 50);
+        }
+      }
+    } catch (err) {
+      console.log('Autoclicker error:', err.message);
+    }
+  }, 600000);
+  
+  console.log('Autoclicker started');
+}
+
+// Player list function - sends list of online players to Discord every minute
+async function setupPlayerList() {
+  console.log('Setting up player list (every 60 seconds)');
+  
+  // Clear any existing interval
+  if (playerListInterval) {
+    clearInterval(playerListInterval);
+  }
+  
+  // Get the player list channel
+  if (discordClient && config.player_list_channel) {
+    try {
+      const channelId = String(config.player_list_channel).trim();
+      playerListChannel = await discordClient.channels.fetch(channelId);
+      if (playerListChannel) {
+        console.log(`Player list channel connected: #${playerListChannel.name}`);
+      }
+    } catch (err) {
+      console.error('Error getting player list channel:', err.message);
+      return;
+    }
+  }
+  
+  // Function to send player list
+  const sendPlayerList = async () => {
+    if (!bot || !bot.players || !playerListChannel) return;
+    
+    try {
+      // Get all online players - just names, nothing else
+      const players = Object.keys(bot.players);
+      const csvList = players.join(', ');
+      
+      // Send start marker
+      await playerListChannel.send('----start player list----');
+      
+      // Split into chunks if over 2000 chars (Discord limit)
+      if (csvList.length <= 2000) {
+        await playerListChannel.send(csvList || 'No players');
+      } else {
+        // Split into multiple messages at commas
+        let remaining = csvList;
+        while (remaining.length > 0) {
+          let chunk = remaining.substring(0, 2000);
+          if (remaining.length > 2000) {
+            const lastComma = chunk.lastIndexOf(', ');
+            if (lastComma > 0) {
+              chunk = remaining.substring(0, lastComma);
+              remaining = remaining.substring(lastComma + 2);
+            } else {
+              remaining = remaining.substring(2000);
+            }
+          } else {
+            remaining = '';
+          }
+          await playerListChannel.send(chunk);
+        }
+      }
+      
+      // Send end marker
+      await playerListChannel.send('----end player list----');
+    } catch (err) {
+      console.error('Error sending player list:', err.message);
+    }
+  };
+  
+  // Send initial list after a short delay
+  setTimeout(sendPlayerList, 5000);
+  
+  // Then send every 60 seconds
+  playerListInterval = setInterval(sendPlayerList, 60000);
+  
+  console.log('Player list started');
+}
+
 // Daily restart schedule function
 function setupDailyRestartSchedule() {
   // Clear any existing interval
@@ -600,6 +810,14 @@ function setupDailyRestartSchedule() {
       if (followInterval) {
         clearInterval(followInterval);
         followInterval = null;
+      }
+      if (autoclickerInterval) {
+        clearInterval(autoclickerInterval);
+        autoclickerInterval = null;
+      }
+      if (playerListInterval) {
+        clearInterval(playerListInterval);
+        playerListInterval = null;
       }
       
       // Close viewer servers and disconnect bot
@@ -633,6 +851,12 @@ process.on('SIGINT', async () => {
   }
   if (followInterval) {
     clearInterval(followInterval);
+  }
+  if (autoclickerInterval) {
+    clearInterval(autoclickerInterval);
+  }
+  if (playerListInterval) {
+    clearInterval(playerListInterval);
   }
   await closeViewerServers();
   if (bot) {
