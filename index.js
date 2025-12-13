@@ -1,3 +1,11 @@
+// Utility to clear all intervals
+function clearAllIntervals() {
+  if (scheduleInterval) { clearInterval(scheduleInterval); scheduleInterval = null; }
+  if (followInterval) { clearInterval(followInterval); followInterval = null; }
+  if (autoclickerInterval) { clearInterval(autoclickerInterval); autoclickerInterval = null; }
+  if (playerListInterval) { clearInterval(playerListInterval); playerListInterval = null; }
+  if (autoPayInterval) { clearInterval(autoPayInterval); autoPayInterval = null; }
+}
 // Daily restart schedule (matches original egg)
 function setupDailyRestartSchedule() {
   if (scheduleInterval) clearInterval(scheduleInterval);
