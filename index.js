@@ -6,6 +6,7 @@ function clearAllIntervals() {
   if (playerListInterval) { clearInterval(playerListInterval); playerListInterval = null; }
   if (autoPayInterval) { clearInterval(autoPayInterval); autoPayInterval = null; }
 }
+
 // Daily restart schedule (matches original egg)
 function setupDailyRestartSchedule() {
   if (scheduleInterval) clearInterval(scheduleInterval);
@@ -88,11 +89,12 @@ let playerListInterval = null;
 let autoPayInterval = null;
 let playerListChannel = null;
 let manuallyDisconnected = false;
+let isReconnecting = false;
 let webControllerServer = null;
 let webControllerIO = null;
 let inventoryServer = null;
 let httpServer = null;
-let viewerServer = null;
+
 // Utility to send messages to Discord channel
 function sendToDiscord(message) {
   if (discordChannel && discordChannel.send) {
@@ -113,6 +115,7 @@ rl.on('line', (input) => {
 function closeViewerServers() {
   return new Promise((resolve) => {
     console.log('Closing web/inventory/viewer servers...');
+    
     if (webControllerIO) {
       webControllerIO.disconnectSockets(true);
       webControllerIO.close();
@@ -126,12 +129,15 @@ function closeViewerServers() {
       httpServer.close(() => { console.log('HTTP server closed'); checkDone(); });
       httpServer = null;
     }
-    if (viewerServer && viewerServer.close) {
-      pending++;
+    
+    // Close viewer using bot.viewer.close() method
+    if (bot && bot.viewer && typeof bot.viewer.close === 'function') {
       try {
-        viewerServer.close(() => { console.log('Viewer server closed'); checkDone(); });
-      } catch(e) { checkDone(); }
-      viewerServer = null;
+        bot.viewer.close();
+        console.log('Viewer closed');
+      } catch(e) {
+        console.log('Error closing viewer:', e.message);
+      }
     }
     if (inventoryServer && inventoryServer.close) {
       pending++;
@@ -142,7 +148,7 @@ function closeViewerServers() {
     }
     webControllerServer = null;
     if (pending === 0) resolve();
-    else setTimeout(resolve, 3000);
+    else setTimeout(resolve, 5000); // Increased timeout to ensure ports are released
   });
 }
 
@@ -186,19 +192,42 @@ function setupWebController(bot, port) {
 // Place createBot function at top-level, not nested
 function createBot() {
   console.log(`Connecting to ${config.host}:${config.port}`);
+  
+  // Set a connection timeout
+  const connectionTimeout = setTimeout(() => {
+    console.error('Connection timeout - server not responding');
+    if (bot) {
+      bot.removeAllListeners();
+      bot.quit();
+    }
+    setTimeout(() => {
+      console.log('Retrying connection...');
+      createBot();
+    }, 15000);
+  }, 30000);
+  
   bot = mineflayer.createBot({
     host: config.host,
     port: config.port,
     username: config.username,
     auth: config.auth,
-    version: false
+    version: false,
+    connectTimeout: 30000
   });
   bot.loadPlugin(pathfinder);
 
-  bot.on('error', (err) => { console.error('Bot error:', err.message); sendToDiscord(`❌ Error: ${err.message}`); });
-  bot._client.on('error', (err) => { console.error('Connection error:', err.message); });
+  bot.on('error', (err) => { 
+    clearTimeout(connectionTimeout);
+    console.error('Bot error:', err.message); 
+    sendToDiscord(`❌ Error: ${err.message}`); 
+  });
+  bot._client.on('error', (err) => { 
+    clearTimeout(connectionTimeout);
+    console.error('Connection error:', err.message); 
+  });
 
-  bot.once('spawn', () => {
+  bot.once('spawn', async () => {
+    clearTimeout(connectionTimeout);
     console.log('Bot spawned');
     sendToDiscord('✅ Bot spawned!');
 
@@ -207,8 +236,9 @@ function createBot() {
     }
     if (config.viewer_port) {
       try {
-        viewerServer = mineflayerViewer(bot, { port: config.viewer_port, firstPerson: true });
+        mineflayerViewer(bot, { port: config.viewer_port, firstPerson: true });
         console.log('3D Viewer on port ' + config.viewer_port);
+        
         bot._client.on('error', (err) => {
           if (err.message && err.message.includes('partial packet')) {
             console.log('Ignoring partial packet error');
@@ -248,15 +278,47 @@ function createBot() {
     }
   });
 
-  bot.on('kicked', (reason) => { console.log('Kicked:', reason); sendToDiscord(`❌ Kicked: ${reason}`); });
-
-  bot.on('end', (reason) => {
-    console.log('Disconnected:', reason);
+  bot.on('kicked', async (reason) => { 
+    console.log('Kicked:', reason); 
+    sendToDiscord(`❌ Kicked: ${reason}`);
+    if (manuallyDisconnected || isReconnecting) { 
+      console.log('Already handling disconnect, skipping...'); 
+      return; 
+    }
+    isReconnecting = true;
     clearAllIntervals();
-    closeViewerServers();
-    if (manuallyDisconnected) { console.log('Manual disconnect, not reconnecting.'); return; }
+    // Match daily restart order: close servers first, THEN remove listeners and quit
+    await closeViewerServers();
+    // Additional delay to ensure ports are fully released
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    if (bot) { bot.removeAllListeners('end'); bot.removeAllListeners('kicked'); bot.quit(); }
+    sendToDiscord('⚠️ Kicked from server. Reconnecting in 20s...');
+    setTimeout(() => { 
+      console.log('Reconnecting after kick...'); 
+      isReconnecting = false;
+      createBot(); 
+    }, 20000);
+  });
+
+  bot.on('end', async (reason) => {
+    console.log('Disconnected:', reason);
+    if (manuallyDisconnected || isReconnecting) { 
+      console.log('Already handling disconnect, skipping...'); 
+      return; 
+    }
+    isReconnecting = true;
+    clearAllIntervals();
+    // Match daily restart order: close servers first, THEN remove listeners
+    await closeViewerServers();
+    // Additional delay to ensure ports are fully released
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    if (bot) { bot.removeAllListeners('end'); bot.removeAllListeners('kicked'); }
     sendToDiscord('⚠️ Disconnected. Reconnecting in 20s...');
-    setTimeout(() => { console.log('Reconnecting...'); createBot(); }, 20000);
+    setTimeout(() => { 
+      console.log('Reconnecting...'); 
+      isReconnecting = false;
+      createBot(); 
+    }, 20000);
   });
 }
 
