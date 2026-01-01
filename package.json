@@ -15,14 +15,15 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "mineflayer": "^4.20.1",
+    "canvas": "^3.2.0",
+    "chalk": "^4.1.2",
     "discord.js": "^14.16.3",
-    "prismarine-viewer": "^1.33.0",
-    "mineflayer-web-inventory": "^1.8.0",
-    "mineflayer-pathfinder": "^2.4.5",
-    "express": "^4.18.2",
-    "socket.io": "^4.7.2",
     "dotenv": "^16.3.1",
-    "canvas": "^3.2.0"
+    "express": "^4.18.2",
+    "mineflayer": "^4.20.1",
+    "mineflayer-pathfinder": "^2.4.5",
+    "mineflayer-web-inventory": "^1.8.0",
+    "prismarine-viewer": "^1.33.0",
+    "socket.io": "^4.7.2"
   }
 }

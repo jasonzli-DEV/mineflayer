@@ -42,6 +42,7 @@ const express = require('express');
 const http = require('http');
 const { Server: SocketIOServer } = require('socket.io');
 const readline = require('readline');
+const chalk = require('chalk');
 
 // Load config from environment
 const config = {
@@ -109,26 +110,79 @@ rl.on('line', async (input) => {
   if (!trimmed) return;
   
   // Handle commands
-  if (trimmed === '!leave') {
+  if (trimmed === '!help') {
+    console.log(chalk.cyan('\n=== Available Commands ==='));
+    console.log(chalk.yellow('!help') + '     - Show this help message');
+    console.log(chalk.yellow('!status') + '   - Show bot connection status');
+    console.log(chalk.yellow('!join') + '     - Connect bot to server');
+    console.log(chalk.yellow('!leave') + '    - Disconnect bot from server');
+    console.log(chalk.yellow('!players') + '  - List online players');
+    console.log(chalk.yellow('!coords') + '   - Show bot coordinates');
+    console.log(chalk.gray('Type any other text to send as chat message\n'));
+    return;
+  }
+  
+  if (trimmed === '!status') {
+    if (bot && bot.entity) {
+      console.log(chalk.green('✅ Status: Connected'));
+      console.log(chalk.cyan(`   Server: ${config.host}:${config.port}`));
+      console.log(chalk.cyan(`   Username: ${config.username}`));
+      console.log(chalk.cyan(`   Health: ${bot.health}/20`));
+      console.log(chalk.cyan(`   Food: ${bot.food}/20`));
+    } else {
+      console.log(chalk.red('❌ Status: Disconnected'));
+    }
+    return;
+  }
+  
+  if (trimmed === '!players') {
     if (!bot) {
-      console.log('❌ Error: Bot is not connected');
+      console.log(chalk.red('❌ Error: Bot is not connected'));
       return;
     }
-    console.log('Disconnecting bot...');
+    const players = Object.keys(bot.players).filter(name => name !== bot.username);
+    if (players.length === 0) {
+      console.log(chalk.yellow('No other players online'));
+    } else {
+      console.log(chalk.cyan(`Online players (${players.length}):`));
+      players.forEach(name => console.log(chalk.white(`  - ${name}`)));
+    }
+    return;
+  }
+  
+  if (trimmed === '!coords') {
+    if (!bot || !bot.entity) {
+      console.log(chalk.red('❌ Error: Bot is not connected'));
+      return;
+    }
+    const pos = bot.entity.position;
+    console.log(chalk.cyan('Bot coordinates:'));
+    console.log(chalk.white(`  X: ${pos.x.toFixed(2)}`));
+    console.log(chalk.white(`  Y: ${pos.y.toFixed(2)}`));
+    console.log(chalk.white(`  Z: ${pos.z.toFixed(2)}`));
+    return;
+  }
+  
+  if (trimmed === '!leave') {
+    if (!bot) {
+      console.log(chalk.red('❌ Error: Bot is not connected'));
+      return;
+    }
+    console.log(chalk.yellow('Disconnecting bot...'));
     manuallyDisconnected = true;
     clearAllIntervals();
     await closeViewerServers();
     if (bot) { bot.removeAllListeners('end'); bot.quit(); bot = null; }
-    console.log('✅ Bot disconnected');
+    console.log(chalk.green('✅ Bot disconnected'));
     return;
   }
   
   if (trimmed === '!join') {
     if (bot) {
-      console.log('❌ Error: Bot is already connected');
+      console.log(chalk.red('❌ Error: Bot is already connected'));
       return;
     }
-    console.log('Connecting bot...');
+    console.log(chalk.yellow('Connecting bot...'));
     manuallyDisconnected = false;
     await closeViewerServers();
     setTimeout(() => {
@@ -139,10 +193,10 @@ rl.on('line', async (input) => {
   
   // If not a command, send as chat message
   if (bot) {
-    console.log(`[Console] Sending: ${trimmed}`);
+    console.log(chalk.gray(`[Console] Sending: ${trimmed}`));
     bot.chat(trimmed);
   } else {
-    console.log('❌ Error: Bot is not connected');
+    console.log(chalk.red('❌ Error: Bot is not connected'));
   }
 });
 
