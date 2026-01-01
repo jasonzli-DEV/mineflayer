@@ -104,10 +104,45 @@ function sendToDiscord(message) {
 
 // Console input for sending messages as the bot
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-rl.on('line', (input) => {
-  if (bot && input.trim()) {
-    console.log(`[Console] Sending: ${input}`);
-    bot.chat(input);
+rl.on('line', async (input) => {
+  const trimmed = input.trim();
+  if (!trimmed) return;
+  
+  // Handle commands
+  if (trimmed === '!leave') {
+    if (!bot) {
+      console.log('❌ Error: Bot is not connected');
+      return;
+    }
+    console.log('Disconnecting bot...');
+    manuallyDisconnected = true;
+    clearAllIntervals();
+    await closeViewerServers();
+    if (bot) { bot.removeAllListeners('end'); bot.quit(); bot = null; }
+    console.log('✅ Bot disconnected');
+    return;
+  }
+  
+  if (trimmed === '!join') {
+    if (bot) {
+      console.log('❌ Error: Bot is already connected');
+      return;
+    }
+    console.log('Connecting bot...');
+    manuallyDisconnected = false;
+    await closeViewerServers();
+    setTimeout(() => {
+      createBot();
+    }, 2000);
+    return;
+  }
+  
+  // If not a command, send as chat message
+  if (bot) {
+    console.log(`[Console] Sending: ${trimmed}`);
+    bot.chat(trimmed);
+  } else {
+    console.log('❌ Error: Bot is not connected');
   }
 });
 
