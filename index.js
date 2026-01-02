@@ -1,3 +1,37 @@
+// Suppress PartialReadError BEFORE any other code runs
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+console.log = function(...args) {
+  if (args.length > 0 && args[0] instanceof Error && args[0].name === 'PartialReadError') return;
+  const str = String(args[0] || '');
+  if (str.includes('PartialReadError')) return;
+  originalConsoleLog.apply(console, args);
+};
+console.error = function(...args) {
+  if (args.length > 0 && args[0] instanceof Error && args[0].name === 'PartialReadError') return;
+  const str = String(args[0] || '');
+  if (str.includes('PartialReadError')) return;
+  originalConsoleError.apply(console, args);
+};
+console.warn = function(...args) {
+  if (args.length > 0 && args[0] instanceof Error && args[0].name === 'PartialReadError') return;
+  const str = String(args[0] || '');
+  if (str.includes('PartialReadError')) return;
+  originalConsoleWarn.apply(console, args);
+};
+
+const originalWrite = process.stderr.write.bind(process.stderr);
+process.stderr.write = function(chunk, encoding, callback) {
+  const str = chunk.toString();
+  if (str.includes('PartialReadError')) {
+    if (typeof encoding === 'function') callback = encoding;
+    if (callback) callback();
+    return true;
+  }
+  return originalWrite(chunk, encoding, callback);
+};
+
 // Utility to clear all intervals
 function clearAllIntervals() {
   if (scheduleInterval) { clearInterval(scheduleInterval); scheduleInterval = null; }
