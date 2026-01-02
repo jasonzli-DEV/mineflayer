@@ -256,13 +256,13 @@ function setupWebController(bot, port, viewerPort) {
   try {
     mineflayerViewer(bot, { port: viewerPort, firstPerson: true });
     console.log('3D Viewer on port ' + viewerPort);
-    // Handle chunk parsing errors
+    // Suppress PartialReadError and partial packet errors (non-fatal protocol errors)
     bot._client.on('error', (err) => {
-      if (err.message && err.message.includes('partial packet')) {
-        console.log('Ignoring partial packet error');
-      } else {
-        console.error('Client error:', err.message);
+      if (err.name === 'PartialReadError' || (err.message && err.message.includes('partial packet'))) {
+        // Ignore - these are non-fatal packet parsing errors from the server
+        return;
       }
+      console.error('Client error:', err.message);
     });
   } catch (err) {
     console.error('Failed to start viewer:', err.message);
