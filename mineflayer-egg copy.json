@@ -1,0 +1,247 @@
+{
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2025-01-01T00:00:00+00:00",
+  "name": "Mineflayer Bot",
+  "author": "jason@enderbit.com",
+  "description": "Mineflayer bot with Discord integration and web viewer. Control your bot from Discord and view it in your browser!",
+  "features": null,
+  "docker_images": {
+    "ghcr.io/parkervcp/yolks:nodejs_18": "ghcr.io/parkervcp/yolks:nodejs_18"
+  },
+  "file_denylist": [],
+  "startup": "node index.js",
+  "config": {
+    "files": "{\r\n    \"config.json\": {\r\n        \"parser\": \"json\",\r\n        \"find\": {\r\n            \"host\": \"{{server.build.env.MC_HOST}}\",\r\n            \"port\": \"{{server.build.env.MC_PORT}}\",\r\n            \"username\": \"{{server.build.env.BOT_USERNAME}}\",\r\n            \"auth\": \"{{server.build.env.AUTH_TYPE}}\",\r\n            \"discord_token\": \"{{server.build.env.DISCORD_TOKEN}}\",\r\n            \"discord_channel\": \"{{server.build.env.DISCORD_CHANNEL}}\",\r\n            \"discord_status\": \"{{server.build.env.DISCORD_STATUS}}\",\r\n            \"enable_discord\": \"{{server.build.env.ENABLE_DISCORD}}\",\r\n            \"discord_admin_id\": \"{{server.build.env.DISCORD_ADMIN_ID}}\",\r\n            \"enable_web_controller\": \"{{server.build.env.ENABLE_WEB_CONTROLLER}}\",\r\n            \"web_controller_port\": \"{{server.build.env.WEB_CONTROLLER_PORT}}\",\r\n            \"enable_inventory\": \"{{server.build.env.ENABLE_INVENTORY}}\",\r\n            \"inventory_port\": \"{{server.build.env.INVENTORY_PORT}}\",\r\n            \"enable_daily_restart\": \"{{server.build.env.ENABLE_DAILY_RESTART}}\",\r\n            \"restart_timezone\": \"{{server.build.env.RESTART_TIMEZONE}}\",\r\n            \"enable_chat_reactions\": \"{{server.build.env.ENABLE_CHAT_REACTIONS}}\",\r\n            \"enable_follow\": \"{{server.build.env.ENABLE_FOLLOW}}\",\r\n            \"follow_player\": \"{{server.build.env.FOLLOW_PLAYER}}\",\r\n            \"viewer_port\": \"{{server.build.env.VIEWER_PORT}}\",\r\n            \"enable_autoclicker\": \"{{server.build.env.ENABLE_AUTOCLICKER}}\",\r\n            \"enable_player_list\": \"{{server.build.env.ENABLE_PLAYER_LIST}}\",\r\n            \"player_list_channel\": \"{{server.build.env.PLAYER_LIST_CHANNEL}}\",\r\n            \"enable_auto_pay\": \"{{server.build.env.ENABLE_AUTO_PAY}}\",\r\n            \"auto_pay_player\": \"{{server.build.env.AUTO_PAY_PLAYER}}\"\r\n        }\r\n    }\r\n}",
+    "startup": "{\r\n    \"done\": \"Bot ready\"\r\n}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/bash\napt update\napt install -y curl\n\n# Install Node.js\ncurl -fsSL https://deb.nodesource.com/setup_18.x | bash -\napt install -y nodejs\n\ncd /mnt/server\n\n# Create package.json\ncat > package.json << 'EOF'\n{\n  \"name\": \"mineflayer-bot\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Mineflayer bot with Discord and viewer\",\n  \"main\": \"index.js\",\n  \"dependencies\": {\n    \"mineflayer\": \"^4.20.1\",\n    \"discord.js\": \"^14.16.3\",\n    \"prismarine-viewer\": \"^1.33.0\",\n    \"mineflayer-web-inventory\": \"^1.8.0\",\n    \"mineflayer-pathfinder\": \"^2.4.5\",\n    \"canvas\": \"^2.11.2\",\n    \"express\": \"^4.18.2\",\n    \"socket.io\": \"^4.7.2\",\n    \"readline\": \"^1.3.0\"\n  }\n}\nEOF\n\n# Install dependencies\nrm -f package-lock.json\nnpm install\n\n# Create main bot script\ncat > index.js << 'EOF'\nconst mineflayer = require('mineflayer');\nconst { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes } = require('discord.js');\nconst { mineflayer: mineflayerViewer } = require('prismarine-viewer');\nconst inventoryViewer = require('mineflayer-web-inventory');\nconst { pathfinder, Movements, goals: { GoalFollow } } = require('mineflayer-pathfinder');\nconst fs = require('fs');\nconst express = require('express');\nconst http = require('http');\nconst { Server: SocketIOServer } = require('socket.io');\nconst readline = require('readline');\n\n// Load config\nlet config = {\n  host: '127.0.0.1',\n  port: 25565,\n  username: 'Bot',\n  auth: 'offline',\n  discord_token: '',\n  discord_channel: '',\n  discord_status: 'Playing Minecraft',\n  enable_discord: false,\n  discord_admin_id: '',\n  enable_web_controller: false,\n  web_controller_port: 3000,\n  viewer_port: 3001,\n  enable_inventory: false,\n  inventory_port: 3001,\n  enable_daily_restart: true,\n  restart_timezone: 'America/New_York',\n  enable_chat_reactions: false,\n  enable_follow: false,\n  follow_player: '',\n  enable_autoclicker: false,\n  enable_player_list: false,\n  player_list_channel: '',\n  enable_auto_pay: false,\n  auto_pay_player: ''\n};\n\nif (fs.existsSync('config.json')) {\n  const configText = fs.readFileSync('config.json', 'utf8');\n  const fixedConfigText = configText.replace(/:[ ]*([0-9]{15,})([,\\n\\r}])/g, ': \"$1\"$2');\n  const loadedConfig = JSON.parse(fixedConfigText);\n  config = { ...config, ...loadedConfig };\n  if (typeof config.enable_discord === 'string') config.enable_discord = config.enable_discord === 'true';\n  if (typeof config.enable_web_controller === 'string') config.enable_web_controller = config.enable_web_controller === 'true';\n  if (typeof config.enable_inventory === 'string') config.enable_inventory = config.enable_inventory === 'true';\n  if (typeof config.enable_daily_restart === 'string') config.enable_daily_restart = config.enable_daily_restart === 'true';\n  if (typeof config.enable_chat_reactions === 'string') config.enable_chat_reactions = config.enable_chat_reactions === 'true';\n  if (typeof config.enable_follow === 'string') config.enable_follow = config.enable_follow === 'true';\n  if (typeof config.enable_autoclicker === 'string') config.enable_autoclicker = config.enable_autoclicker === 'true';\n  if (typeof config.enable_player_list === 'string') config.enable_player_list = config.enable_player_list === 'true';\n  if (typeof config.enable_auto_pay === 'string') config.enable_auto_pay = config.enable_auto_pay === 'true';\n  config.player_list_channel = String(config.player_list_channel || '');\n  config.auto_pay_player = String(config.auto_pay_player || '');\n  config.web_controller_port = parseInt(config.web_controller_port) || 3000;\n  config.viewer_port = parseInt(config.viewer_port) || 3001;\n  config.inventory_port = parseInt(config.inventory_port) || 3001;\n  config.port = parseInt(config.port) || 25565;\n  config.discord_channel = String(config.discord_channel || '');\n  config.discord_admin_id = String(config.discord_admin_id || '');\n}\n\nconsole.log('Starting Mineflayer bot...');\nconsole.log('Discord enabled:', config.enable_discord);\nconsole.log('Web Controller enabled:', config.enable_web_controller);\nconsole.log('Autoclicker enabled:', config.enable_autoclicker);\nconsole.log('Auto Pay enabled:', config.enable_auto_pay);\nconsole.log('Auto Pay player:', config.auto_pay_player);\n\n// Global variables\nlet bot = null;\nlet discordClient = null;\nlet discordChannel = null;\nlet scheduleInterval = null;\nlet followInterval = null;\nlet autoclickerInterval = null;\nlet playerListInterval = null;\nlet autoPayInterval = null;\nlet playerListChannel = null;\nlet manuallyDisconnected = false;\nlet webControllerServer = null;\nlet webControllerIO = null;\nlet inventoryServer = null;\nlet httpServer = null;\nlet viewerServer = null;\n\n// Console input for sending messages as the bot\nconst rl = readline.createInterface({ input: process.stdin, output: process.stdout });\nrl.on('line', (input) => {\n  if (bot && input.trim()) {\n    console.log(`[Console] Sending: ${input}`);\n    bot.chat(input);\n  }\n});\n\n// Function to forcefully close all servers\nfunction closeViewerServers() {\n  return new Promise((resolve) => {\n    console.log('Closing viewer servers...');\n    \n    // Disconnect all socket.io clients first\n    if (webControllerIO) {\n      webControllerIO.disconnectSockets(true);\n      webControllerIO.close();\n      webControllerIO = null;\n    }\n    \n    let pending = 0;\n    const checkDone = () => { pending--; if (pending <= 0) resolve(); };\n    \n    if (httpServer) {\n      pending++;\n      httpServer.closeAllConnections();\n      httpServer.close(() => { console.log('HTTP server closed'); checkDone(); });\n      httpServer = null;\n    }\n    \n    if (viewerServer && viewerServer.close) {\n      pending++;\n      try {\n        viewerServer.close(() => { console.log('Viewer server closed'); checkDone(); });\n      } catch(e) { checkDone(); }\n      viewerServer = null;\n    }\n    \n    if (inventoryServer && inventoryServer.close) {\n      pending++;\n      try {\n        inventoryServer.close(() => { console.log('Inventory server closed'); checkDone(); });\n      } catch(e) { checkDone(); }\n      inventoryServer = null;\n    }\n    \n    webControllerServer = null;\n    \n    if (pending === 0) resolve();\n    else setTimeout(resolve, 3000); // Force resolve after 3s\n  });\n}\n\n// Setup web controller\nfunction setupWebController(bot, port, viewerPort) {\n  const app = express();\n  httpServer = http.createServer(app);\n  const io = new SocketIOServer(httpServer, { cors: { origin: '*' } });\n  webControllerIO = io;\n  \n  try {\n    viewerServer = mineflayerViewer(bot, { port: viewerPort, firstPerson: true });\n    console.log('3D Viewer on port ' + viewerPort);\n    // Handle chunk parsing errors\n    bot._client.on('error', (err) => {\n      if (err.message && err.message.includes('partial packet')) {\n        console.log('Ignoring partial packet error');\n      } else {\n        console.error('Client error:', err.message);\n      }\n    });\n  } catch (err) {\n    console.error('Failed to start viewer:', err.message);\n  }\n  \n  app.get('/', (req, res) => {\n    const vp = viewerPort;\n    res.send('<!DOCTYPE html><html><head><title>Bot Controller</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a2e;color:#eee;font-family:Arial,sans-serif;overflow:hidden}#container{width:100vw;height:100vh;display:flex;flex-direction:column}#viewer-frame{flex:1;width:100%;border:none;background:#111}#controls-overlay{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);padding:15px 25px;border-radius:10px;display:flex;gap:20px;align-items:center;z-index:1000}.key{display:inline-block;padding:8px 12px;background:#333;border:2px solid #555;border-radius:5px;min-width:40px;text-align:center;font-weight:bold}.key.active{background:#4CAF50;border-color:#4CAF50}#status{position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.7);padding:10px 15px;border-radius:5px;z-index:1000}#instructions{position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.7);padding:10px 15px;border-radius:5px;z-index:1000;font-size:12px;max-width:200px}#pointer-lock-msg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);padding:30px;border-radius:10px;z-index:2000;text-align:center}#pointer-lock-msg h2{margin-bottom:15px}.keys-row{display:flex;gap:5px;justify-content:center}.keys-col{display:flex;flex-direction:column;gap:5px;align-items:center}#viewer-notice{background:#333;color:#fff;padding:10px;text-align:center}#viewer-notice a{color:#4CAF50}#chat-box{position:fixed;bottom:80px;left:20px;width:350px;max-height:200px;background:rgba(0,0,0,0.7);border-radius:5px;z-index:1000;display:flex;flex-direction:column}#chat-messages{flex:1;overflow-y:auto;padding:10px;font-size:13px;max-height:150px}#chat-messages p{margin:3px 0;word-wrap:break-word}.chat-msg{color:#fff}.chat-input-container{display:none;padding:8px;border-top:1px solid #444}#chat-input{width:100%;padding:8px;background:#222;border:1px solid #555;border-radius:3px;color:#fff;font-size:13px}#chat-input:focus{outline:none;border-color:#4CAF50}.chat-hint{color:#888;font-size:11px;padding:5px 10px;text-align:center}</style></head><body><div id=\"container\"><div id=\"viewer-notice\"><p>3D Viewer: <a href=\"http://'+req.hostname+':'+vp+'\" target=\"_blank\">Open in new tab</a></p></div><iframe id=\"viewer-frame\" src=\"http://'+req.hostname+':'+vp+'\"></iframe></div><div id=\"status\">Connected: <span id=\"conn-status\">Connecting...</span></div><div id=\"instructions\"><b>Click to enable controls</b><br>WASD-Move Space-Jump<br>Shift-Sneak Ctrl-Sprint<br>T-Chat ESC-Release</div><div id=\"controls-overlay\"><div class=\"keys-col\"><div class=\"keys-row\"><span class=\"key\" id=\"key-w\">W</span></div><div class=\"keys-row\"><span class=\"key\" id=\"key-a\">A</span><span class=\"key\" id=\"key-s\">S</span><span class=\"key\" id=\"key-d\">D</span></div></div><div class=\"keys-col\"><span class=\"key\" id=\"key-space\">SPACE</span><span class=\"key\" id=\"key-shift\">SHIFT</span><span class=\"key\" id=\"key-ctrl\">CTRL</span></div></div><div id=\"chat-box\"><div id=\"chat-messages\"><p class=\"chat-hint\">Press T to chat</p></div><div class=\"chat-input-container\" id=\"chat-input-container\"><input type=\"text\" id=\"chat-input\" placeholder=\"Type message...\" maxlength=\"256\"></div></div><div id=\"pointer-lock-msg\"><h2>Click to control bot</h2><p>WASD to move, mouse to look</p></div><script src=\"/socket.io/socket.io.js\"></script><script>const socket=io();let isLocked=false;const keys={w:false,a:false,s:false,d:false,space:false,shift:false,ctrl:false};socket.on(\"connect\",()=>{document.getElementById(\"conn-status\").textContent=\"Yes\";document.getElementById(\"conn-status\").style.color=\"#4CAF50\"});socket.on(\"disconnect\",()=>{document.getElementById(\"conn-status\").textContent=\"No\";document.getElementById(\"conn-status\").style.color=\"#f44336\"});socket.on(\"chat\",(msg)=>{const chatMsgs=document.getElementById(\"chat-messages\");const p=document.createElement(\"p\");p.className=\"chat-msg\";p.textContent=msg;chatMsgs.appendChild(p);while(chatMsgs.children.length>50)chatMsgs.removeChild(chatMsgs.firstChild);chatMsgs.scrollTop=chatMsgs.scrollHeight});let chatOpen=false;const chatInput=document.getElementById(\"chat-input\");const chatContainer=document.getElementById(\"chat-input-container\");function openChat(){chatOpen=true;chatContainer.style.display=\"block\";chatInput.focus();document.exitPointerLock()}function closeChat(){chatOpen=false;chatContainer.style.display=\"none\";chatInput.value=\"\";document.body.requestPointerLock()}function sendChat(){const msg=chatInput.value.trim();if(msg){socket.emit(\"chat\",msg)}closeChat()}chatInput.addEventListener(\"keydown\",(e)=>{if(e.key===\"Enter\"){e.preventDefault();sendChat()}else if(e.key===\"Escape\"){closeChat()}e.stopPropagation()});chatInput.addEventListener(\"keyup\",(e)=>e.stopPropagation());function updateKeyDisplay(){document.getElementById(\"key-w\").classList.toggle(\"active\",keys.w);document.getElementById(\"key-a\").classList.toggle(\"active\",keys.a);document.getElementById(\"key-s\").classList.toggle(\"active\",keys.s);document.getElementById(\"key-d\").classList.toggle(\"active\",keys.d);document.getElementById(\"key-space\").classList.toggle(\"active\",keys.space);document.getElementById(\"key-shift\").classList.toggle(\"active\",keys.shift);document.getElementById(\"key-ctrl\").classList.toggle(\"active\",keys.ctrl)}function sendControls(){socket.emit(\"controls\",{forward:keys.w,back:keys.s,left:keys.a,right:keys.d,jump:keys.space,sneak:keys.shift,sprint:keys.ctrl})}document.addEventListener(\"click\",(e)=>{if(e.target.tagName===\"A\"||e.target.tagName===\"INPUT\")return;if(!isLocked&&!chatOpen)document.body.requestPointerLock()});document.addEventListener(\"pointerlockchange\",()=>{isLocked=document.pointerLockElement===document.body;document.getElementById(\"pointer-lock-msg\").style.display=isLocked?\"none\":\"block\"});document.addEventListener(\"keydown\",(e)=>{if(chatOpen)return;if(!isLocked)return;e.preventDefault();let changed=false;if(e.code===\"KeyW\"&&!keys.w){keys.w=true;changed=true}if(e.code===\"KeyA\"&&!keys.a){keys.a=true;changed=true}if(e.code===\"KeyS\"&&!keys.s){keys.s=true;changed=true}if(e.code===\"KeyD\"&&!keys.d){keys.d=true;changed=true}if(e.code===\"Space\"&&!keys.space){keys.space=true;changed=true}if(e.code===\"ShiftLeft\"&&!keys.shift){keys.shift=true;changed=true}if(e.code===\"ControlLeft\"&&!keys.ctrl){keys.ctrl=true;changed=true}if(e.code===\"KeyT\"){openChat();return}if(e.code===\"Slash\"){openChat();setTimeout(()=>{chatInput.value=\"/\";},10);return}if(changed){updateKeyDisplay();sendControls()}});document.addEventListener(\"keyup\",(e)=>{if(chatOpen)return;let changed=false;if(e.code===\"KeyW\"){keys.w=false;changed=true}if(e.code===\"KeyA\"){keys.a=false;changed=true}if(e.code===\"KeyS\"){keys.s=false;changed=true}if(e.code===\"KeyD\"){keys.d=false;changed=true}if(e.code===\"Space\"){keys.space=false;changed=true}if(e.code===\"ShiftLeft\"){keys.shift=false;changed=true}if(e.code===\"ControlLeft\"){keys.ctrl=false;changed=true}if(changed){updateKeyDisplay();sendControls()}});document.addEventListener(\"mousemove\",(e)=>{if(!isLocked)return;socket.emit(\"look\",{x:e.movementX,y:e.movementY})});</script></body></html>');\n  });\n  \n  io.on('connection', (socket) => {\n    console.log('Web controller client connected');\n    socket.on('chat', (msg) => { if (bot && typeof msg === 'string') bot.chat(msg.substring(0, 256)); });\n    socket.on('controls', (data) => {\n      if (!bot || !bot.entity) return;\n      bot.setControlState('forward', data.forward);\n      bot.setControlState('back', data.back);\n      bot.setControlState('left', data.left);\n      bot.setControlState('right', data.right);\n      bot.setControlState('jump', data.jump);\n      bot.setControlState('sneak', data.sneak);\n      bot.setControlState('sprint', data.sprint);\n    });\n    socket.on('look', (data) => {\n      if (!bot || !bot.entity) return;\n      const sensitivity = 0.003;\n      const yaw = bot.entity.yaw - (data.x * sensitivity);\n      const pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, bot.entity.pitch - (data.y * sensitivity)));\n      bot.look(yaw, pitch, true);\n    });\n    socket.on('disconnect', () => {\n      console.log('Web controller client disconnected');\n      if (bot && bot.entity) {\n        bot.setControlState('forward', false);\n        bot.setControlState('back', false);\n        bot.setControlState('left', false);\n        bot.setControlState('right', false);\n        bot.setControlState('jump', false);\n        bot.setControlState('sneak', false);\n        bot.setControlState('sprint', false);\n      }\n    });\n  });\n  \n  httpServer.listen(port, '0.0.0.0', () => { console.log('Web controller on port ' + port); });\n  httpServer.on('error', (err) => { console.error('Web controller error:', err.message); });\n  webControllerServer = httpServer;\n}\n\nfunction sendToDiscord(message) {\n  if (discordChannel && discordChannel.send) {\n    discordChannel.send(message).catch(err => console.error('Discord error:', err.message));\n  }\n}\n\nasync function registerSlashCommands() {\n  if (!config.enable_discord || !config.discord_token) return;\n  const commands = [\n    new SlashCommandBuilder().setName('leave').setDescription('Disconnect bot'),\n    new SlashCommandBuilder().setName('connect').setDescription('Connect bot'),\n    new SlashCommandBuilder().setName('msg').setDescription('Send message').addStringOption(o => o.setName('message').setDescription('Message').setRequired(true))\n  ].map(cmd => cmd.toJSON());\n  try {\n    const rest = new REST({ version: '10' }).setToken(config.discord_token);\n    const appInfo = await rest.get(Routes.oauth2CurrentApplication());\n    await rest.put(Routes.applicationCommands(appInfo.id), { body: commands });\n    console.log('Discord commands registered');\n  } catch (err) { console.error('Failed to register commands:', err.message); }\n}\n\nfunction setupDiscord() {\n  if (!config.enable_discord || !config.discord_token || !config.discord_channel) return;\n  discordClient = new Client({ intents: [GatewayIntentBits.Guilds] });\n  discordClient.on(Events.ClientReady, async (client) => {\n    console.log(`Discord: ${client.user.tag}`);\n    if (config.discord_status) client.user.setActivity(config.discord_status);\n    await registerSlashCommands();\n    try {\n      discordChannel = await client.channels.fetch(String(config.discord_channel).trim());\n      if (discordChannel) discordChannel.send('\\ud83e\\udd16 Bot connected!').catch(console.error);\n    } catch (err) { console.error('Discord channel error:', err.message); }\n  });\n  \n  discordClient.on(Events.InteractionCreate, async (interaction) => {\n    if (!interaction.isChatInputCommand()) return;\n    const adminId = String(config.discord_admin_id).trim();\n    if (adminId && interaction.user.id !== adminId) {\n      await interaction.reply({ content: '\\u274c No permission.', ephemeral: true });\n      return;\n    }\n    \n    if (interaction.commandName === 'leave') {\n      if (!bot) { await interaction.reply({ content: 'Bot not connected.', ephemeral: true }); return; }\n      manuallyDisconnected = true;\n      clearAllIntervals();\n      await closeViewerServers();\n      if (bot) { bot.removeAllListeners('end'); bot.quit(); bot = null; }\n      await interaction.reply('\\u2705 Bot disconnected.');\n    }\n    \n    if (interaction.commandName === 'connect') {\n      if (bot) { await interaction.reply({ content: 'Bot already connected.', ephemeral: true }); return; }\n      manuallyDisconnected = false;\n      await closeViewerServers();\n      await new Promise(r => setTimeout(r, 2000));\n      createBot();\n      await interaction.reply('\\u2705 Bot connecting...');\n    }\n    \n    if (interaction.commandName === 'msg') {\n      if (!bot) { await interaction.reply({ content: 'Bot not connected.', ephemeral: true }); return; }\n      const msg = interaction.options.getString('message');\n      if (msg) { bot.chat(msg); await interaction.reply(`\\u2705 Sent: \\`${msg}\\``); }\n    }\n  });\n  \n  discordClient.login(config.discord_token).catch(err => console.error('Discord login failed:', err.message));\n}\n\nfunction clearAllIntervals() {\n  if (scheduleInterval) { clearInterval(scheduleInterval); scheduleInterval = null; }\n  if (followInterval) { clearInterval(followInterval); followInterval = null; }\n  if (autoclickerInterval) { clearInterval(autoclickerInterval); autoclickerInterval = null; }\n  if (playerListInterval) { clearInterval(playerListInterval); playerListInterval = null; }\n  if (autoPayInterval) { clearInterval(autoPayInterval); autoPayInterval = null; }\n}\n\n// Auto Pay function\nasync function doAutoPay() {\n  if (!bot || !config.enable_auto_pay || !config.auto_pay_player) return;\n  console.log('Auto Pay: Running /bal...');\n  \n  return new Promise((resolve) => {\n    let balanceFound = false;\n    const balListener = (jsonMsg) => {\n      const msg = jsonMsg.toString();\n      // Match Balance: $X,XXX.XX format\n      const match = msg.match(/Balance:\\s*\\$([\\d,]+\\.?\\d*)/i);\n      if (match && !balanceFound) {\n        balanceFound = true;\n        const balance = match[1];\n        console.log(`Auto Pay: Balance is $${balance}`);\n        bot.removeListener('message', balListener);\n        \n        // Run /pay twice\n        setTimeout(() => {\n          console.log(`Auto Pay: /pay ${config.auto_pay_player} ${balance}`);\n          bot.chat(`/pay ${config.auto_pay_player} ${balance}`);\n          setTimeout(() => {\n            console.log(`Auto Pay: /pay ${config.auto_pay_player} ${balance} (2nd)`);\n            bot.chat(`/pay ${config.auto_pay_player} ${balance}`);\n            resolve();\n          }, 1500);\n        }, 1000);\n      }\n    };\n    \n    bot.on('message', balListener);\n    bot.chat('/bal');\n    \n    // Timeout after 10 seconds\n    setTimeout(() => {\n      bot.removeListener('message', balListener);\n      if (!balanceFound) console.log('Auto Pay: Timeout waiting for balance');\n      resolve();\n    }, 10000);\n  });\n}\n\nfunction setupAutoPay() {\n  if (!config.enable_auto_pay || !config.auto_pay_player) return;\n  console.log('Setting up auto pay (every hour)');\n  if (autoPayInterval) clearInterval(autoPayInterval);\n  // Run every hour\n  autoPayInterval = setInterval(doAutoPay, 60 * 60 * 1000);\n  // Also run once after 30 seconds\n  setTimeout(doAutoPay, 30000);\n}\n\nfunction createBot() {\n  console.log(`Connecting to ${config.host}:${config.port}`);\n  bot = mineflayer.createBot({\n    host: config.host,\n    port: config.port,\n    username: config.username,\n    auth: config.auth,\n    version: false\n  });\n  bot.loadPlugin(pathfinder);\n  \n  bot.on('error', (err) => { console.error('Bot error:', err.message); sendToDiscord(`\\u274c Error: ${err.message}`); });\n  bot._client.on('error', (err) => { console.error('Connection error:', err.message); });\n  \n  bot.once('spawn', () => {\n    console.log('Bot spawned');\n    sendToDiscord('\\u2705 Bot spawned!');\n    \n    if (config.enable_web_controller) {\n      try { setupWebController(bot, config.web_controller_port, config.viewer_port); }\n      catch (err) { console.error('Web controller error:', err.message); }\n    }\n    if (config.enable_inventory) {\n      try { inventoryServer = inventoryViewer(bot, { port: config.inventory_port }); }\n      catch (err) { console.error('Inventory error:', err.message); }\n    }\n    if (config.enable_daily_restart) setupDailyRestartSchedule();\n    if (config.enable_follow && config.follow_player) setupFollowPlayer();\n    if (config.enable_autoclicker) setupAutoclicker();\n    if (config.enable_player_list && config.player_list_channel) setupPlayerList();\n    if (config.enable_auto_pay && config.auto_pay_player) setupAutoPay();\n    \n    setTimeout(() => console.log('Bot ready!'), 500);\n  });\n  \n  bot.on('message', (jsonMsg) => {\n    const message = jsonMsg.toString();\n    console.log(`[Chat] ${message}`);\n    if (message && message.trim()) {\n      sendToDiscord(message);\n      if (webControllerIO) webControllerIO.emit('chat', message);\n    }\n    if (config.enable_chat_reactions && message.includes('Chat Reaction')) {\n      if (message.includes('No one typed') || message.includes('was first')) return;\n      const match = message.match(/type \\\"(.+?)\\\"/);\n      if (match && match[1] && Math.random() < 0.2) {\n        setTimeout(() => { if (bot) bot.chat(match[1]); }, 1000 + Math.random() * 2000);\n      }\n    }\n  });\n  \n  bot.on('kicked', (reason) => { console.log('Kicked:', reason); sendToDiscord(`\\u274c Kicked: ${reason}`); });\n  \n  bot.on('end', (reason) => {\n    console.log('Disconnected:', reason);\n    clearAllIntervals();\n    closeViewerServers();\n    if (manuallyDisconnected) { console.log('Manual disconnect, not reconnecting.'); return; }\n    sendToDiscord('\\u26a0\\ufe0f Disconnected. Reconnecting in 20s...');\n    setTimeout(() => { console.log('Reconnecting...'); createBot(); }, 20000);\n  });\n}\n\nfunction setupFollowPlayer() {\n  if (followInterval) clearInterval(followInterval);\n  const defaultMove = new Movements(bot);\n  followInterval = setInterval(() => {\n    if (!bot || !config.follow_player) return;\n    const target = bot.players[config.follow_player]?.entity;\n    if (target) { bot.pathfinder.setMovements(defaultMove); bot.pathfinder.setGoal(new GoalFollow(target, 2), true); }\n  }, 1000);\n  console.log(`Following ${config.follow_player}`);\n}\n\n// Autoclicker - LEFT CLICK ONLY\nfunction setupAutoclicker() {\n  if (autoclickerInterval) clearInterval(autoclickerInterval);\n  console.log('Autoclicker: LEFT CLICK ONLY every 10 min');\n  \n  autoclickerInterval = setInterval(async () => {\n    if (!bot || !bot.entity) return;\n    try {\n      const signs = bot.findBlocks({ matching: (b) => b.name.includes('sign'), maxDistance: 3, count: 20 });\n      if (signs.length === 0) { console.log('Autoclicker: No signs'); return; }\n      \n      let bestSign = null, highestY = -Infinity;\n      for (const pos of signs) { if (pos.y > highestY) { highestY = pos.y; bestSign = pos; } }\n      \n      if (bestSign) {\n        const block = bot.blockAt(bestSign);\n        if (block) {\n          await bot.lookAt(bestSign.offset(0.5, 0.5, 0.5));\n          await new Promise(r => setTimeout(r, 50));\n          bot.swingArm('right');\n          // LEFT CLICK ONLY\n          bot._client.write('block_dig', { status: 0, location: block.position, face: 1 });\n          setTimeout(() => { bot._client.write('block_dig', { status: 1, location: block.position, face: 1 }); }, 50);\n          console.log('Autoclicker: Left-clicked sign');\n        }\n      }\n    } catch (err) { console.log('Autoclicker error:', err.message); }\n  }, 600000);\n}\n\nasync function setupPlayerList() {\n  if (playerListInterval) clearInterval(playerListInterval);\n  if (discordClient && config.player_list_channel) {\n    try { playerListChannel = await discordClient.channels.fetch(String(config.player_list_channel).trim()); }\n    catch (err) { console.error('Player list channel error:', err.message); return; }\n  }\n  const sendPlayerList = async () => {\n    if (!bot || !bot.players || !playerListChannel) return;\n    try {\n      const playerNames = Object.keys(bot.players);\n      if (playerNames.length === 0) {\n        await playerListChannel.send('----start player list----');\n        await playerListChannel.send('No players');\n        await playerListChannel.send('----end player list----');\n        return;\n      }\n      \n      // Split into chunks without cutting usernames\n      const chunks = [];\n      let currentChunk = '';\n      for (const name of playerNames) {\n        const addition = currentChunk ? ', ' + name : name;\n        if ((currentChunk + addition).length > 1900) {\n          if (currentChunk) chunks.push(currentChunk);\n          currentChunk = name;\n        } else {\n          currentChunk += addition;\n        }\n      }\n      if (currentChunk) chunks.push(currentChunk);\n      \n      await playerListChannel.send('----start player list----');\n      for (const chunk of chunks) {\n        await playerListChannel.send(chunk);\n      }\n      await playerListChannel.send('----end player list----');\n    } catch (err) { console.error('Player list error:', err.message); }\n  };\n  setTimeout(sendPlayerList, 5000);\n  playerListInterval = setInterval(sendPlayerList, 60000);\n}\n\nfunction setupDailyRestartSchedule() {\n  if (scheduleInterval) clearInterval(scheduleInterval);\n  scheduleInterval = setInterval(async () => {\n    const now = new Date();\n    const estTime = new Date(now.toLocaleString('en-US', { timeZone: config.restart_timezone || 'America/New_York' }));\n    if (estTime.getHours() === 23 && estTime.getMinutes() === 56) {\n      console.log('Daily restart: Logging out...');\n      sendToDiscord('\\ud83d\\udd04 Daily restart - Logging out');\n      clearAllIntervals();\n      \n      // Run auto pay before restart\n      if (config.enable_auto_pay && config.auto_pay_player) {\n        await doAutoPay();\n      }\n      \n      await closeViewerServers();\n      if (bot) { bot.removeAllListeners('end'); bot.quit(); }\n      setTimeout(() => {\n        console.log('Daily restart: Reconnecting...');\n        sendToDiscord('\\ud83d\\udd04 Reconnecting...');\n        createBot();\n      }, 8 * 60 * 1000);\n    }\n  }, 60 * 1000);\n  console.log('Daily restart schedule enabled');\n}\n\nprocess.on('SIGINT', async () => {\n  console.log('Shutting down...');\n  clearAllIntervals();\n  await closeViewerServers();\n  if (bot) { bot.removeAllListeners('end'); bot.quit(); }\n  if (discordClient) discordClient.destroy();\n  process.exit(0);\n});\n\nprocess.on('uncaughtException', (err) => console.error('Uncaught:', err.message));\nprocess.on('unhandledRejection', (reason) => console.error('Unhandled:', reason));\n\nsetupDiscord();\ncreateBot();\nEOF\n\n# Create config file\ncat > config.json << 'EOF'\n{\n  \"host\": \"127.0.0.1\",\n  \"port\": 25565,\n  \"username\": \"Bot\",\n  \"auth\": \"offline\",\n  \"discord_token\": \"\",\n  \"discord_channel\": \"\",\n  \"discord_status\": \"Playing Minecraft\",\n  \"enable_discord\": false,\n  \"discord_admin_id\": \"\",\n  \"enable_web_controller\": false,\n  \"web_controller_port\": 3000,\n  \"viewer_port\": 3001,\n  \"enable_inventory\": false,\n  \"inventory_port\": 3001,\n  \"enable_daily_restart\": true,\n  \"restart_timezone\": \"America/New_York\",\n  \"enable_chat_reactions\": false,\n  \"enable_follow\": false,\n  \"follow_player\": \"\",\n  \"enable_autoclicker\": false,\n  \"enable_player_list\": false,\n  \"player_list_channel\": \"\",\n  \"enable_auto_pay\": false,\n  \"auto_pay_player\": \"\"\n}\nEOF\n\necho \"Installation complete!\"",
+      "container": "debian:bullseye-slim",
+      "entrypoint": "bash"
+    }
+  },
+  "variables": [
+    {
+      "name": "Minecraft Server Host",
+      "description": "The IP/hostname of the Minecraft server to connect to",
+      "env_variable": "MC_HOST",
+      "default_value": "127.0.0.1",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:255"
+    },
+    {
+      "name": "Minecraft Server Port",
+      "description": "The port of the Minecraft server",
+      "env_variable": "MC_PORT",
+      "default_value": "25565",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer|between:1,65535"
+    },
+    {
+      "name": "Bot Username",
+      "description": "The username for the bot",
+      "env_variable": "BOT_USERNAME",
+      "default_value": "Bot",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:16"
+    },
+    {
+      "name": "Auth Type",
+      "description": "Authentication type: offline, microsoft, or mojang",
+      "env_variable": "AUTH_TYPE",
+      "default_value": "offline",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:offline,microsoft,mojang"
+    },
+    {
+      "name": "Enable Discord",
+      "description": "Enable Discord integration (true/false)",
+      "env_variable": "ENABLE_DISCORD",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Discord Bot Token",
+      "description": "Your Discord bot token (only needed if Discord is enabled)",
+      "env_variable": "DISCORD_TOKEN",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:255"
+    },
+    {
+      "name": "Discord Channel ID",
+      "description": "The Discord channel ID to bridge chat (only needed if Discord is enabled)",
+      "env_variable": "DISCORD_CHANNEL",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:64"
+    },
+    {
+      "name": "Discord Status Message",
+      "description": "Custom status message for the Discord bot",
+      "env_variable": "DISCORD_STATUS",
+      "default_value": "Playing Minecraft",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:128"
+    },
+    {
+      "name": "Discord Admin User ID",
+      "description": "Discord user ID who can use /leave and /connect commands (right-click user -> Copy ID)",
+      "env_variable": "DISCORD_ADMIN_ID",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:64"
+    },
+    {
+      "name": "Enable Web Controller",
+      "description": "Enable web-based 3D first-person viewer with keyboard/mouse controls to remotely control your bot (true/false)",
+      "env_variable": "ENABLE_WEB_CONTROLLER",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Web Controller Port",
+      "description": "Port for the web controller interface (keyboard/mouse controls)",
+      "env_variable": "WEB_CONTROLLER_PORT",
+      "default_value": "3000",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer|between:1,65535"
+    },
+    {
+      "name": "Viewer Port",
+      "description": "Port for the 3D viewer (must also be allocated in Pterodactyl)",
+      "env_variable": "VIEWER_PORT",
+      "default_value": "3001",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer|between:1,65535"
+    },
+    {
+      "name": "Enable Web Inventory",
+      "description": "Enable web-based inventory viewer (true/false)",
+      "env_variable": "ENABLE_INVENTORY",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Inventory Port",
+      "description": "Port for the inventory viewer (allocate this port in pterodactyl!)",
+      "env_variable": "INVENTORY_PORT",
+      "default_value": "3002",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|integer|between:1,65535"
+    },
+    {
+      "name": "Enable Daily Restart",
+      "description": "Enable automatic logout/login for daily server restart (true/false)",
+      "env_variable": "ENABLE_DAILY_RESTART",
+      "default_value": "true",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Restart Timezone",
+      "description": "Timezone for daily restart schedule (e.g., America/New_York)",
+      "env_variable": "RESTART_TIMEZONE",
+      "default_value": "America/New_York",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:64"
+    },
+    {
+      "name": "Enable Chat Reactions",
+      "description": "Enable chat reactions - bot has 20% chance to respond to <Reaction> messages with a 2 second delay (true/false)",
+      "env_variable": "ENABLE_CHAT_REACTIONS",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Enable Follow Player",
+      "description": "Enable GPS pathfinder to continuously follow a player (true/false)",
+      "env_variable": "ENABLE_FOLLOW",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Follow Player Username",
+      "description": "Minecraft username of the player to follow (only used if Enable Follow is true)",
+      "env_variable": "FOLLOW_PLAYER",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:16"
+    },
+    {
+      "name": "Enable Autoclicker",
+      "description": "Enable autoclicker - bot will left-click signs every 10 minutes (true/false)",
+      "env_variable": "ENABLE_AUTOCLICKER",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Enable Player List",
+      "description": "Enable player list - sends a CSV list of all online players to Discord every minute (true/false)",
+      "env_variable": "ENABLE_PLAYER_LIST",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Player List Discord Channel",
+      "description": "Discord channel ID where the player list should be sent (separate from main chat channel)",
+      "env_variable": "PLAYER_LIST_CHANNEL",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:64"
+    },
+    {
+      "name": "Enable Auto Pay",
+      "description": "Enable auto pay - bot pays its full balance to a player every hour and before restarts (true/false)",
+      "env_variable": "ENABLE_AUTO_PAY",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Auto Pay Player",
+      "description": "Minecraft username to pay the balance to (runs /bal, parses balance, runs /pay twice)",
+      "env_variable": "AUTO_PAY_PLAYER",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string|max:16"
+    }
+  ]
+}
