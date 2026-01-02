@@ -324,6 +324,17 @@ function createBot() {
   });
   bot.loadPlugin(pathfinder);
   
+  // Suppress PartialReadError at the packet level
+  if (bot._client && bot._client.on) {
+    const originalEmit = bot._client.emit;
+    bot._client.emit = function(event, ...args) {
+      if (event === 'error' && args[0] && args[0].name === 'PartialReadError') {
+        return false; // Suppress
+      }
+      return originalEmit.apply(this, [event, ...args]);
+    };
+  }
+  
   bot.on('error', (err) => { 
     if (err.name === 'PartialReadError') return; // Suppress non-fatal packet parsing errors
     console.error('Bot error:', err.message); 
