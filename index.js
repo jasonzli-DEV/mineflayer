@@ -377,11 +377,13 @@ function createBot() {
       console.log('Manual disconnect, not reconnecting.'); 
       return; 
     }
-    sendToDiscord('⚠️ Disconnected. Reconnecting in 20s...');
+    const reconnectDelay = reason === 'encryptionLoginError' || reason === 'socketClosed' ? 30000 : 20000;
+    console.log(`Reconnecting in ${reconnectDelay/1000}s...`);
+    sendToDiscord(`⚠️ Disconnected (${reason}). Reconnecting in ${reconnectDelay/1000}s...`);
     setTimeout(() => { 
       console.log('Reconnecting...'); 
       createBot(); 
-    }, 20000);
+    }, reconnectDelay);
   });
 }
 
@@ -586,6 +588,19 @@ function setupDiscord() {
 
   discordClient.login(config.discord_token).catch(err => console.error('Discord login failed:', err.message));
 }
+
+// Process error handlers to keep bot running
+process.on('SIGINT', async () => {
+  console.log('Shutting down...');
+  clearAllIntervals();
+  await closeViewerServers();
+  if (bot) { bot.removeAllListeners('end'); bot.quit(); }
+  if (discordClient) discordClient.destroy();
+  process.exit(0);
+});
+
+process.on('uncaughtException', (err) => console.error('Uncaught:', err.message));
+process.on('unhandledRejection', (reason) => console.error('Unhandled:', reason));
 
 // Start Discord and bot
 if (config.enable_discord) setupDiscord();
