@@ -372,11 +372,38 @@ function createBot() {
   bot.on('error', (err) => { 
     if (err.name === 'PartialReadError') return; // Suppress non-fatal packet parsing errors
     console.error('Bot error:', err.message); 
-    sendToDiscord(`❌ Error: ${err.message}`); 
+    sendToDiscord(`❌ Error: ${err.message}`);
+    
+    // Trigger reconnect for authentication and connection errors
+    if (err.message && (err.message.includes('Failed to obtain profile') || 
+        err.message.includes('authentication') || err.message.includes('ECONNREFUSED'))) {
+      if (!manuallyDisconnected) {
+        const reconnectDelay = 30000;
+        console.log(`Reconnecting in ${reconnectDelay/1000}s after error...`);
+        setTimeout(() => {
+          console.log('Reconnecting after error...');
+          createBot();
+        }, reconnectDelay);
+      }
+    }
   });
   bot._client.on('error', (err) => { 
     if (err.name === 'PartialReadError') return; // Suppress non-fatal packet parsing errors
-    console.error('Connection error:', err.message); 
+    console.error('Connection error:', err.message);
+    
+    // Trigger reconnect for connection errors if not already handled
+    if (err.message && (err.message.includes('Failed to obtain profile') || 
+        err.message.includes('authentication') || err.message.includes('ECONNREFUSED'))) {
+      if (!manuallyDisconnected && !bot.listenerCount('end')) {
+        // Only reconnect if end event hasn't been set up yet (pre-spawn errors)
+        const reconnectDelay = 30000;
+        console.log(`Reconnecting in ${reconnectDelay/1000}s after connection error...`);
+        setTimeout(() => {
+          console.log('Reconnecting after connection error...');
+          createBot();
+        }, reconnectDelay);
+      }
+    }
   });
   
   bot.once('spawn', () => {
