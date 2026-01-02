@@ -324,8 +324,15 @@ function createBot() {
   });
   bot.loadPlugin(pathfinder);
   
-  bot.on('error', (err) => { console.error('Bot error:', err.message); sendToDiscord(`❌ Error: ${err.message}`); });
-  bot._client.on('error', (err) => { console.error('Connection error:', err.message); });
+  bot.on('error', (err) => { 
+    if (err.name === 'PartialReadError') return; // Suppress non-fatal packet parsing errors
+    console.error('Bot error:', err.message); 
+    sendToDiscord(`❌ Error: ${err.message}`); 
+  });
+  bot._client.on('error', (err) => { 
+    if (err.name === 'PartialReadError') return; // Suppress non-fatal packet parsing errors
+    console.error('Connection error:', err.message); 
+  });
   
   bot.once('spawn', () => {
     console.log('Bot spawned');
@@ -599,8 +606,14 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-process.on('uncaughtException', (err) => console.error('Uncaught:', err.message));
-process.on('unhandledRejection', (reason) => console.error('Unhandled:', reason));
+process.on('uncaughtException', (err) => {
+  if (err.name === 'PartialReadError') return; // Suppress non-fatal packet parsing errors
+  console.error('Uncaught:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  if (reason && reason.name === 'PartialReadError') return; // Suppress non-fatal packet parsing errors
+  console.error('Unhandled:', reason);
+});
 
 // Start Discord and bot
 if (config.enable_discord) setupDiscord();
